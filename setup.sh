@@ -39,4 +39,6 @@ qm set ${VM_ID} --serial0 socket --vga serial0
 # convert to template
 qm template ${VM_ID}
 
+qm set ${VM_ID} --agent enabled=1
+
 echo "VM Template is ready"
