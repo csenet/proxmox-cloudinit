@@ -25,7 +25,10 @@ MEMORY_SIZE=$3 # Memory Size
 DISK_POOL=$4 # Disk Pool optional
 NO_TEMPLATE=false # Default is to create a template
 ENABLE_AGENT=false # Default is not to enable qemu-guest-agent
-IMAGE_FILE="./${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img" # イメージファイルのパス（カレントディレクトリ）
+
+# カレントディレクトリの絶対パスを取得
+CURRENT_DIR="$(pwd)"
+IMAGE_FILE="${CURRENT_DIR}/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img" # イメージファイルの絶対パス
 
 # パラメータをチェック: --no-template と --enable-agent オプションの位置を特定
 for arg in "$@"; do
@@ -78,7 +81,12 @@ qm create ${VM_ID} --memory ${MEMORY_SIZE} --net0 virtio,bridge=vmbr0 --scsihw v
 
 # import the downloaded disk to the DISK_POOL storage, attaching it as a SCSI drive
 echo "ディスクをインポートしています..."
-qm set ${VM_ID} --scsi0 ${DISK_POOL}:0,import-from="${IMAGE_FILE}" || handle_error "ディスクのインポートに失敗しました"
+echo "インポートするイメージのパス: ${IMAGE_FILE}"
+qm importdisk ${VM_ID} "${IMAGE_FILE}" ${DISK_POOL} || handle_error "ディスクのインポートに失敗しました"
+
+# ディスクをVMにアタッチ
+echo "ディスクをVMにアタッチしています..."
+qm set ${VM_ID} --scsi0 ${DISK_POOL}:vm-${VM_ID}-disk-0 || handle_error "ディスクのアタッチに失敗しました"
 
 # Add Cloud init CD-ROM
 echo "CloudInitを設定しています..."
