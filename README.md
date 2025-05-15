@@ -11,8 +11,6 @@ https://forum.proxmox.com/threads/after-upgrade-from-5-2-5-my-server-is-now-name
 
 ## 使い方
 
-:start_line:14
--------
 1. ProxmoxのNodeにSSHでログイン(VMではない)して、cloud-imageをダウンロードする
 ```bash
 wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
@@ -35,7 +33,27 @@ diskを指定する場合(デフォルトはlocal-lvm)
 ./setup.sh 9000 noble 4096 HDDPool
 ```
 
-2. VMをデプロイする
+テンプレートにせずVMとして作成する場合
+```bash
+./setup.sh 9000 noble 4096 --no-template
+```
+
+qemu-guest-agentを有効化する場合（convert.shの手順を自動的に実行）
+```bash
+./setup.sh 9000 noble 4096 --enable-agent
+```
+
+diskとテンプレートオプションを指定する場合
+```bash
+./setup.sh 9000 noble 4096 HDDPool --no-template
+```
+
+複数のオプションを組み合わせる場合
+```bash
+./setup.sh 9000 noble 4096 HDDPool --no-template --enable-agent
+```
+
+4. VMをデプロイする
 ```bash
 wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/deploy.sh
 chmod +x deploy.sh

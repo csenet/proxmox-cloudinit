@@ -4,8 +4,6 @@
 
 set -e
 
-:start_line:7
--------
 if [ "$#" -ne 1 ] && [ "$#" -ne 2 ]; then
   echo "Usage: $0 <cloud-image-path> [output-image-path]"
   exit 1
