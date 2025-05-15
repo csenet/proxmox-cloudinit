@@ -25,6 +25,7 @@ MEMORY_SIZE=$3 # Memory Size
 DISK_POOL=$4 # Disk Pool optional
 NO_TEMPLATE=false # Default is to create a template
 ENABLE_AGENT=false # Default is not to enable qemu-guest-agent
+IMAGE_FILE="./${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img" # イメージファイルのパス（カレントディレクトリ）
 
 # パラメータをチェック: --no-template と --enable-agent オプションの位置を特定
 for arg in "$@"; do
@@ -45,11 +46,11 @@ if [ -z "$DISK_POOL" ] || [ "$DISK_POOL" = "--no-template" ] || [ "$DISK_POOL" =
   DISK_POOL="local-lvm"
 fi
 
-# Check if image exists
-if [ ! -f /root/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img ]; then
-  echo "Image not found Downloading..."
+# Check if image exists in the current directory
+if [ ! -f "${IMAGE_FILE}" ]; then
+  echo "イメージが見つかりません。ダウンロードします..."
   # download the latest Ubuntu Cloud Image
-  wget https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img || handle_error "イメージのダウンロードに失敗しました"
+  wget https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img -O "${IMAGE_FILE}" || handle_error "イメージのダウンロードに失敗しました"
 fi
 
 # Enable qemu-guest-agent if specified
@@ -64,10 +65,10 @@ if [ "$ENABLE_AGENT" = true ]; then
   fi
   
   # Create a backup of the original image
-  cp /root/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img /root/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img.backup || handle_error "イメージのバックアップに失敗しました"
+  cp "${IMAGE_FILE}" "${IMAGE_FILE}.backup" || handle_error "イメージのバックアップに失敗しました"
   
   # Convert the image
-  ./convert.sh /root/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img || handle_error "イメージの変換に失敗しました"
+  ./convert.sh "${IMAGE_FILE}" || handle_error "イメージの変換に失敗しました"
   echo "イメージの変換が完了しました"
 fi
 
@@ -77,7 +78,7 @@ qm create ${VM_ID} --memory ${MEMORY_SIZE} --net0 virtio,bridge=vmbr0 --scsihw v
 
 # import the downloaded disk to the DISK_POOL storage, attaching it as a SCSI drive
 echo "ディスクをインポートしています..."
-qm set ${VM_ID} --scsi0 ${DISK_POOL}:0,import-from=/root/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img || handle_error "ディスクのインポートに失敗しました"
+qm set ${VM_ID} --scsi0 ${DISK_POOL}:0,import-from="${IMAGE_FILE}" || handle_error "ディスクのインポートに失敗しました"
 
 # Add Cloud init CD-ROM
 echo "CloudInitを設定しています..."

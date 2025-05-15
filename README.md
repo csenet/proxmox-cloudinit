@@ -11,20 +11,25 @@ https://forum.proxmox.com/threads/after-upgrade-from-5-2-5-my-server-is-now-name
 
 ## 使い方
 
-1. ProxmoxのNodeにSSHでログイン(VMではない)して、cloud-imageをダウンロードする
+1. ProxmoxのNodeにSSHでログイン(VMではない)して、作業用ディレクトリを作成します
+```bash
+mkdir -p ~/cloudinit-setup
+cd ~/cloudinit-setup
+```
+
+2. cloud-imageをダウンロードします（setup.shが自動的にダウンロードすることもできます）
 ```bash
 wget https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
 ```
 
-2. convert.shでqemu-guest-agentを追加する
-```bash
-./convert.sh noble-server-cloudimg-amd64.img
-```
-
-3. setup.shでVMテンプレートをセットアップする
+3. setup.shをダウンロードして実行権限を付与します
 ```bash
 wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/setup.sh
 chmod +x setup.sh
+```
+
+4. setup.shでVMテンプレートをセットアップします
+```bash
 ./setup.sh 9000 noble 4096
 ```
 
@@ -38,7 +43,7 @@ diskを指定する場合(デフォルトはlocal-lvm)
 ./setup.sh 9000 noble 4096 --no-template
 ```
 
-qemu-guest-agentを有効化する場合（convert.shの手順を自動的に実行）
+qemu-guest-agentを有効化する場合（convert.shを自動的にダウンロード・実行）
 ```bash
 ./setup.sh 9000 noble 4096 --enable-agent
 ```
@@ -53,7 +58,7 @@ diskとテンプレートオプションを指定する場合
 ./setup.sh 9000 noble 4096 HDDPool --no-template --enable-agent
 ```
 
-4. VMをデプロイする
+5. VMをデプロイする
 ```bash
 wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/deploy.sh
 chmod +x deploy.sh
