@@ -43,7 +43,7 @@ diskを指定する場合(デフォルトはlocal-lvm)
 ./setup.sh 9000 noble 4096 --no-template
 ```
 
-qemu-guest-agentを有効化する場合（convert.shを自動的にダウンロード・実行）
+qemu-guest-agentを有効化する場合（初回は変換処理が実行されます）
 ```bash
 ./setup.sh 9000 noble 4096 --enable-agent
 ```
@@ -64,6 +64,14 @@ wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/
 chmod +x deploy.sh
 ./deploy.sh 9000 100 test csenet password123 ip=192.168.200.10/24,gw=192.168.200.1 200
 ```
+
+## qemu-guest-agentについて
+
+`--enable-agent`オプションを使用すると、以下の動作をします：
+
+1. 初回実行時は、オリジナルイメージからqemu-guest-agent導入済みイメージ（`*-agent.img`）を作成し変換処理を行います
+2. 2回目以降の実行時は、すでに変換済みの`*-agent.img`ファイルが存在する場合、そのファイルを使用して変換処理をスキップします
+3. VMの設定でqemu-guest-agentが有効になります
 
 ## UbuntuのバージョンとCodeNameの指定対応
 

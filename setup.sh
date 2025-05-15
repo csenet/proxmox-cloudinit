@@ -29,6 +29,7 @@ ENABLE_AGENT=false # Default is not to enable qemu-guest-agent
 # カレントディレクトリの絶対パスを取得
 CURRENT_DIR="$(pwd)"
 IMAGE_FILE="${CURRENT_DIR}/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img" # イメージファイルの絶対パス
+AGENT_ENABLED_IMAGE="${CURRENT_DIR}/${UBUNTU_CODE_NAME}-server-cloudimg-amd64-agent.img" # qemu-guest-agent導入済みイメージ
 
 # パラメータをチェック: --no-template と --enable-agent オプションの位置を特定
 for arg in "$@"; do
@@ -49,30 +50,40 @@ if [ -z "$DISK_POOL" ] || [ "$DISK_POOL" = "--no-template" ] || [ "$DISK_POOL" =
   DISK_POOL="local-lvm"
 fi
 
-# Check if image exists in the current directory
-if [ ! -f "${IMAGE_FILE}" ]; then
-  echo "イメージが見つかりません。ダウンロードします..."
-  # download the latest Ubuntu Cloud Image
-  wget https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img -O "${IMAGE_FILE}" || handle_error "イメージのダウンロードに失敗しました"
-fi
-
-# Enable qemu-guest-agent if specified
-if [ "$ENABLE_AGENT" = true ]; then
-  echo "qemu-guest-agentを有効化するためにイメージを変換しています..."
-  
-  # Check if convert.sh exists
-  if [ ! -f ./convert.sh ]; then
-    echo "convert.sh がありません。ダウンロードします..."
-    wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/convert.sh || handle_error "convert.shのダウンロードに失敗しました"
-    chmod +x ./convert.sh || handle_error "convert.shの実行権限付与に失敗しました"
+# qemu-guest-agentが有効な場合、agent導入済みイメージを使用する
+if [ "$ENABLE_AGENT" = true ] && [ -f "${AGENT_ENABLED_IMAGE}" ]; then
+  echo "qemu-guest-agent導入済みのキャッシュイメージが見つかりました: ${AGENT_ENABLED_IMAGE}"
+  IMAGE_FILE="${AGENT_ENABLED_IMAGE}"
+else
+  # オリジナルイメージが存在するか確認
+  if [ ! -f "${IMAGE_FILE}" ]; then
+    echo "イメージが見つかりません。ダウンロードします..."
+    # download the latest Ubuntu Cloud Image
+    wget https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img -O "${IMAGE_FILE}" || handle_error "イメージのダウンロードに失敗しました"
   fi
-  
-  # Create a backup of the original image
-  cp "${IMAGE_FILE}" "${IMAGE_FILE}.backup" || handle_error "イメージのバックアップに失敗しました"
-  
-  # Convert the image
-  ./convert.sh "${IMAGE_FILE}" || handle_error "イメージの変換に失敗しました"
-  echo "イメージの変換が完了しました"
+
+  # qemu-guest-agentを有効化する場合
+  if [ "$ENABLE_AGENT" = true ]; then
+    echo "qemu-guest-agentを有効化するためにイメージを変換しています..."
+    
+    # Check if convert.sh exists
+    if [ ! -f ./convert.sh ]; then
+      echo "convert.sh がありません。ダウンロードします..."
+      wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/convert.sh || handle_error "convert.shのダウンロードに失敗しました"
+      chmod +x ./convert.sh || handle_error "convert.shの実行権限付与に失敗しました"
+    fi
+    
+    # 変換前にオリジナルイメージをコピーしてagent導入済みイメージを作成
+    echo "agent導入済みイメージを作成しています: ${AGENT_ENABLED_IMAGE}"
+    cp "${IMAGE_FILE}" "${AGENT_ENABLED_IMAGE}" || handle_error "イメージのコピーに失敗しました"
+    
+    # 作成したagent導入済みイメージを変換
+    ./convert.sh "${AGENT_ENABLED_IMAGE}" || handle_error "イメージの変換に失敗しました"
+    echo "イメージの変換が完了しました"
+    
+    # 変換後のイメージを使用
+    IMAGE_FILE="${AGENT_ENABLED_IMAGE}"
+  fi
 fi
 
 # create a new VM with VirtIO SCSI controller
