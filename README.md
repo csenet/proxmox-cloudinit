@@ -77,8 +77,7 @@ chmod +x deploy.sh
 
 | Ubuntu Version | CodeName | 備考 |
 |:--------------:|:--------:|:----:|
-| 25.10 | questing | 最新 |
-| 25.04 | plucky | |
+| 26.04 LTS | resolute | 最新（長期サポート） |
 | 24.04 LTS | noble | 推奨（長期サポート） |
 | 22.04 LTS | jammy | 長期サポート |
 | 20.04 LTS | focal | 標準サポート終了 |
