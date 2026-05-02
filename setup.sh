@@ -151,7 +151,7 @@ else
     wget "${SOURCE_URL}" -O "${IMAGE_FILE}" || handle_error "イメージのダウンロードに失敗しました"
   fi
 
-  # SHA256検証
+  # SHA256検証 (mismatch時は古いキャッシュとみなして1回だけ再DL → 再検証)
   if [ "${VERIFY_CHECKSUM}" = true ]; then
     echo "SHA256チェックサムを検証しています..."
     CHECKSUM_FILE="${CURRENT_DIR}/SHA256SUMS-${UBUNTU_CODE_NAME}"
@@ -162,7 +162,16 @@ else
     fi
     ACTUAL_SHA256=$(sha256sum "${IMAGE_FILE}" | awk '{print $1}')
     if [ "${EXPECTED_SHA256}" != "${ACTUAL_SHA256}" ]; then
-      handle_error "SHA256検証失敗 期待値=${EXPECTED_SHA256} 実際=${ACTUAL_SHA256}"
+      echo "  → SHA256不一致 (古いキャッシュの可能性)"
+      echo "    期待値: ${EXPECTED_SHA256}"
+      echo "    実際:   ${ACTUAL_SHA256}"
+      echo "  → 再ダウンロードします..."
+      rm -f "${IMAGE_FILE}"
+      wget "${SOURCE_URL}" -O "${IMAGE_FILE}" || handle_error "イメージの再ダウンロードに失敗しました"
+      ACTUAL_SHA256=$(sha256sum "${IMAGE_FILE}" | awk '{print $1}')
+      if [ "${EXPECTED_SHA256}" != "${ACTUAL_SHA256}" ]; then
+        handle_error "再ダウンロード後もSHA256検証失敗 期待値=${EXPECTED_SHA256} 実際=${ACTUAL_SHA256}"
+      fi
     fi
     echo "  → SHA256検証OK (${ACTUAL_SHA256})"
     rm -f "${CHECKSUM_FILE}"
