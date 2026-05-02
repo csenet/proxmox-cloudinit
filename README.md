@@ -33,6 +33,16 @@ chmod +x setup.sh
 ./setup.sh 9000 noble 4096
 ```
 
+VM IDを自動割り当て（9000-9999の空きを自動検出）
+```bash
+./setup.sh auto noble 4096
+```
+
+ストレージを対話選択（利用可能なストレージ一覧から番号で選択）
+```bash
+./setup.sh auto noble 4096 select
+```
+
 diskを指定する場合(デフォルトはlocal-lvm)
 ```bash
 ./setup.sh 9000 noble 4096 HDDPool
@@ -48,14 +58,14 @@ qemu-guest-agentを有効化する場合（初回は変換処理が実行され�
 ./setup.sh 9000 noble 4096 --enable-agent
 ```
 
-diskとテンプレートオプションを指定する場合
+SHA256検証をスキップする場合
 ```bash
-./setup.sh 9000 noble 4096 HDDPool --no-template
+./setup.sh 9000 noble 4096 local-lvm --no-verify
 ```
 
 複数のオプションを組み合わせる場合
 ```bash
-./setup.sh 9000 noble 4096 HDDPool --no-template --enable-agent
+./setup.sh auto noble 4096 select --no-template --enable-agent
 ```
 
 5. VMをデプロイする
@@ -64,6 +74,23 @@ wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/
 chmod +x deploy.sh
 ./deploy.sh 9000 100 test csenet password123 ip=192.168.200.10/24,gw=192.168.200.1 200
 ```
+
+テンプレートを対話選択 + VM IDを自動割り当て
+```bash
+./deploy.sh select auto test csenet password123 ip=192.168.200.10/24,gw=192.168.200.1
+```
+
+## 便利機能
+
+| 機能 | 使い方 |
+|------|--------|
+| **VM ID自動割り当て** | `setup.sh auto ...` で 9000-9999 の空き番号を自動検出 / `deploy.sh ... auto ...` で `pvesh get /cluster/nextid` から取得 |
+| **ストレージ対話選択** | `setup.sh ... select` で `pvesm status -content images` の結果から番号で選択 |
+| **テンプレート対話選択** | `deploy.sh select ...` で既存テンプレート一覧から番号で選択 |
+| **SHA256検証** | デフォルトで Ubuntu公式 `SHA256SUMS` と照合。`--no-verify` でスキップ可 |
+| **タグ自動付与** | テンプレ→`ubuntu;<codename>;template` / VM→`ubuntu;deployed;<codename>` でGUIフィルタしやすい |
+| **説明文自動記入** | 作成日時、Ubuntuバージョン、SHA256、ソースURL、ネットワーク等をdescriptionに記録 |
+| **VM ID重複チェック** | 既存IDが指定された場合は事前にエラー終了 |
 
 ## qemu-guest-agentについて
 
