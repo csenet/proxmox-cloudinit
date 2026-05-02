@@ -28,42 +28,90 @@ wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/
 chmod +x setup.sh
 ```
 
-4. setup.shでVMテンプレートをセットアップします
+4. setup.shでVMテンプレートをセットアップします（最小構成）
 ```bash
-./setup.sh 9000 noble 4096
+./setup.sh --ubuntu noble
+# → VM ID自動 (9000台空き)、memory 2048MB、storage local-lvm、template化
 ```
 
-diskを指定する場合(デフォルトはlocal-lvm)
+ヘルプを表示
 ```bash
-./setup.sh 9000 noble 4096 HDDPool
+./setup.sh --help
 ```
 
-テンプレートにせずVMとして作成する場合
-```bash
-./setup.sh 9000 noble 4096 --no-template
-```
+オプション一覧
 
-qemu-guest-agentを有効化する場合（初回は変換処理が実行されます）
-```bash
-./setup.sh 9000 noble 4096 --enable-agent
-```
+| オプション | 説明 | デフォルト |
+|------------|------|------------|
+| `--vm-id <id\|auto>` | VM ID。`auto` で 9000-9999 の空き自動検出 | `auto` |
+| `--ubuntu <codename>` | Ubuntuコードネーム（必須） | — |
+| `--memory <mb>` | メモリサイズ (MB) | `2048` |
+| `--storage <name\|select>` | ストレージプール。`select` で対話選択 | `local-lvm` |
+| `--cores <n>` | CPUコア数 | `2` |
+| `--disk-size <size>` | 追加ディスクサイズ | `+20G` |
+| `--no-template` | テンプレート化しない | — |
+| `--enable-agent` | qemu-guest-agentを有効化 | — |
+| `--no-verify` | SHA256検証をスキップ | — |
 
-diskとテンプレートオプションを指定する場合
-```bash
-./setup.sh 9000 noble 4096 HDDPool --no-template
-```
+例
 
-複数のオプションを組み合わせる場合
 ```bash
-./setup.sh 9000 noble 4096 HDDPool --no-template --enable-agent
+# VM ID指定 + メモリ4GB + ストレージ指定
+./setup.sh --vm-id 9000 --ubuntu noble --memory 4096 --storage HDDPool
+
+# ストレージ対話選択 + agent有効
+./setup.sh --ubuntu noble --memory 4096 --storage select --enable-agent
+
+# テンプレ化せずVMで作成（テスト用）
+./setup.sh --ubuntu noble --no-template
+
+# 全部入り
+./setup.sh --vm-id 9001 --ubuntu jammy --memory 8192 --cores 4 \
+  --disk-size +50G --storage select --enable-agent
 ```
 
 5. VMをデプロイする
 ```bash
 wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/deploy.sh
 chmod +x deploy.sh
-./deploy.sh 9000 100 test csenet password123 ip=192.168.200.10/24,gw=192.168.200.1 200
+
+# テンプレ対話選択 + VM ID自動割り当て (最小構成)
+./deploy.sh --name test --github csenet --password password123 \
+  --network ip=192.168.200.10/24,gw=192.168.200.1
 ```
+
+オプション一覧
+
+| オプション | 説明 | デフォルト |
+|------------|------|------------|
+| `--template-id <id\|select>` | テンプレートVM ID。`select` で対話選択 | `select` |
+| `--vm-id <id\|auto>` | 作成するVM ID | `auto` |
+| `--name <vm-name>` | VM名（必須） | — |
+| `--github <account>` | SSH鍵を取得するGitHubアカウント（必須） | — |
+| `--password <password>` | cloud-init パスワード（必須） | — |
+| `--network <ipconfig>` | ネットワーク設定（必須） | — |
+| `--vlan <tag>` | VLANタグ | — |
+| `--bridge <bridge>` | ブリッジ | `vmbr0` |
+
+例
+
+```bash
+# 完全指定
+./deploy.sh --template-id 9000 --vm-id 100 --name test --github csenet \
+  --password password123 --network ip=192.168.200.10/24,gw=192.168.200.1 --vlan 200
+```
+
+## 便利機能
+
+| 機能 | 使い方 |
+|------|--------|
+| **VM ID自動割り当て** | setup.sh→9000-9999から空き検出 / deploy.sh→`pvesh get /cluster/nextid` |
+| **ストレージ対話選択** | `--storage select` で `pvesm status -content images` から番号選択 |
+| **テンプレート対話選択** | `--template-id select` (default) で既存テンプレ一覧から番号選択 |
+| **SHA256検証** | デフォルトで Ubuntu公式 `SHA256SUMS` と照合。`--no-verify` でスキップ |
+| **タグ自動付与** | テンプレ→`ubuntu;<codename>;template` / VM→`ubuntu;deployed;<codename>` |
+| **説明文自動記入** | 作成日時、Ubuntuバージョン、SHA256、ソースURL、ネットワーク等を記録 |
+| **VM ID重複チェック** | `qm list` で一括取得して事前にエラー検出 |
 
 ## qemu-guest-agentについて
 
