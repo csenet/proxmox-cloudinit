@@ -75,12 +75,15 @@ chmod +x deploy.sh
 
 ## UbuntuのバージョンとCodeNameの指定対応
 
-| Ubuntu Version | CodeName |
-|:--------------:|:--------:|
-| 24.04.1 LTS | noble |
-| 22.04.5 LTS | jammy |
-| 20.04.6 LTS | focal |
-| 18.04.6 LTS | bionic |
+| Ubuntu Version | CodeName | 備考 |
+|:--------------:|:--------:|:----:|
+| 26.04 LTS | resolute | 最新（長期サポート） |
+| 24.04 LTS | noble | 推奨（長期サポート） |
+| 22.04 LTS | jammy | 長期サポート |
+| 20.04 LTS | focal | 標準サポート終了 |
+| 18.04 LTS | bionic | EOL（非推奨） |
+
+> **注意**: 上記以外のコードネームでも、[cloud-images.ubuntu.com](https://cloud-images.ubuntu.com/) にイメージが存在すれば利用可能です。
 
 ## 参考
 - https://pve.proxmox.com/wiki/Cloud-Init_Support
