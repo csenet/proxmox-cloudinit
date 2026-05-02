@@ -65,23 +65,30 @@ done
 [ -z "${PASSWORD}" ]       && handle_error "--password は必須です"
 [ -z "${NETWORK}" ]        && handle_error "--network は必須です"
 
-# 既存VM一覧を一括取得 (qm statusの個別呼び出しを避ける)
-EXISTING_VMS=$(qm list 2>/dev/null | awk 'NR>1')
-EXISTING_IDS=$(echo "${EXISTING_VMS}" | awk '{print $1}')
+# 既存VM IDを一括取得 (pmxcfsを直接見るのが圧倒的に速い)
+get_existing_vm_ids() {
+  local f id
+  for f in /etc/pve/nodes/*/qemu-server/*.conf; do
+    [ -e "$f" ] || continue
+    id="${f##*/}"
+    echo "${id%.conf}"
+  done
+}
+EXISTING_IDS=$(get_existing_vm_ids)
 
-# テンプレート対話選択
+# テンプレート対話選択 (.conf を直読みするので qm config 不要)
 select_template() {
   echo "利用可能なテンプレート一覧:" >&2
-  local templates=()
-  while IFS= read -r line; do
-    [ -z "${line}" ] && continue
-    local id name
-    id=$(echo "${line}" | awk '{print $1}')
-    name=$(echo "${line}" | awk '{print $2}')
-    if qm config "${id}" 2>/dev/null | grep -q "^template: 1"; then
+  local templates=() conf id name
+  for conf in /etc/pve/nodes/*/qemu-server/*.conf; do
+    [ -e "${conf}" ] || continue
+    if grep -q "^template: 1" "${conf}"; then
+      id="${conf##*/}"
+      id="${id%.conf}"
+      name=$(awk -F': ' '/^name:/ {print $2; exit}' "${conf}")
       templates+=("${id}|${name}")
     fi
-  done <<< "${EXISTING_VMS}"
+  done
 
   if [ "${#templates[@]}" -eq 0 ]; then
     echo "テンプレートが見つかりません" >&2
@@ -120,14 +127,36 @@ if ! grep -qx "${TEMPLATE_VM_ID}" <<< "${EXISTING_IDS}"; then
   handle_error "テンプレートVM ${TEMPLATE_VM_ID} が存在しません"
 fi
 
-if ! qm config "${TEMPLATE_VM_ID}" 2>/dev/null | grep -q "^template: 1"; then
+# テンプレートのconfパスを解決
+get_vm_conf_path() {
+  local id="$1" f
+  for f in /etc/pve/nodes/*/qemu-server/${id}.conf; do
+    [ -e "$f" ] || continue
+    echo "$f"
+    return 0
+  done
+  return 1
+}
+TEMPLATE_CONF=$(get_vm_conf_path "${TEMPLATE_VM_ID}") || handle_error "テンプレートVM設定ファイルが見つかりません"
+
+if ! grep -q "^template: 1" "${TEMPLATE_CONF}"; then
   echo "警告: VM ${TEMPLATE_VM_ID} はテンプレート化されていません"
 fi
 
-# VM ID自動割り当て
+# VM ID自動割り当て (100-999の空きを EXISTING_IDS から探す。pvesh nextid は ~1s かかるので回避)
+get_next_vm_id() {
+  for id in $(seq 100 999); do
+    if ! grep -qx "${id}" <<< "${EXISTING_IDS}"; then
+      echo "${id}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [ "${VM_ID}" = "auto" ]; then
   echo "VM IDを自動割り当てしています..."
-  VM_ID=$(pvesh get /cluster/nextid 2>/dev/null) || handle_error "次のVM IDの取得に失敗しました"
+  VM_ID=$(get_next_vm_id) || handle_error "100-999の範囲に空きVM IDがありません"
   echo "  → VM ID ${VM_ID} を使用します"
 fi
 
@@ -167,8 +196,8 @@ fi
 # Apply SSH keys
 apply_ssh_keys
 
-# テンプレートのコードネームを推測してタグを引き継ぐ
-TEMPLATE_NAME=$(qm config "${TEMPLATE_VM_ID}" 2>/dev/null | awk -F': ' '/^name:/ {print $2}')
+# テンプレートのコードネームを推測してタグを引き継ぐ (.conf直読み)
+TEMPLATE_NAME=$(awk -F': ' '/^name:/ {print $2; exit}' "${TEMPLATE_CONF}")
 TAGS="ubuntu;deployed"
 if [[ "${TEMPLATE_NAME}" =~ ubuntu-([a-z]+)-template ]]; then
   TAGS="${TAGS};${BASH_REMATCH[1]}"

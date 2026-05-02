@@ -71,8 +71,17 @@ AGENT_ENABLED_IMAGE="${CURRENT_DIR}/${UBUNTU_CODE_NAME}-server-cloudimg-amd64-ag
 SOURCE_URL="https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img"
 CHECKSUM_URL="https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/SHA256SUMS"
 
-# 既存VM IDを一括取得 (qm statusの個別呼び出しを避ける)
-EXISTING_IDS=$(qm list 2>/dev/null | awk 'NR>1 {print $1}')
+# 既存VM IDを一括取得
+# pmxcfsの /etc/pve/nodes/*/qemu-server/*.conf を直接見るのが圧倒的に速い (qm list 比 ~350x)
+get_existing_vm_ids() {
+  local f id
+  for f in /etc/pve/nodes/*/qemu-server/*.conf; do
+    [ -e "$f" ] || continue
+    id="${f##*/}"
+    echo "${id%.conf}"
+  done
+}
+EXISTING_IDS=$(get_existing_vm_ids)
 
 # VM IDの自動割り当て (テンプレート用は9000番台から空きを探す)
 get_next_template_id() {
