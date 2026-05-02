@@ -1,46 +1,87 @@
 #!/bin/bash
 # VM TemplateからVMを作成するスクリプト
-# ./deploy.sh <TEMPLATE_VM_ID|select> <VM_ID|auto> <VM_NAME> <GITHUB_ACCOUNT> <PASSWORD> <NETWORK> [<VLAN_TAG>]
 
 set -uo pipefail
 
-# Check arguments and show usage
-if [ "$#" -lt 6 ]; then
-  echo "Invalid number of arguments"
-  echo "Usage: ./deploy.sh <TEMPLATE_VM_ID|select> <VM_ID|auto> <VM_NAME> <GITHUB_ACCOUNT> <PASSWORD> <NETWORK> [<VLAN_TAG>]"
-  echo ""
-  echo "Examples:"
-  echo "  ./deploy.sh 9000 100 test csenet password123 ip=192.168.200.10/24,gw=192.168.200.1 200"
-  echo "  ./deploy.sh select auto test csenet password123 ip=192.168.200.10/24,gw=192.168.200.1"
-  echo "  ./deploy.sh 9000 auto test csenet password123 ip=192.168.200.10/24,gw=192.168.200.1"
-  exit 1
-fi
+show_help() {
+  cat <<'EOF'
+Usage: ./deploy.sh [options]
 
-TEMPLATE_VM_ID=$1
-VM_ID=$2
-VM_NAME=$3
-GITHUB_ACCOUNT=$4
-PASSWORD=$5
-NETWORK=$6
-VLAN_TAG=${7:-}
+Options:
+  --template-id <id|select>  テンプレートVM ID (default: select = 対話選択)
+  --vm-id <id|auto>          作成するVM ID (default: auto)
+  --name <vm-name>           VM名 (required)
+  --github <account>         SSH鍵を取得するGitHubアカウント (required)
+  --password <password>      cloud-init パスワード (required)
+  --network <ipconfig>       ネットワーク設定 (required, e.g. ip=192.168.1.10/24,gw=192.168.1.1)
+  --vlan <tag>               VLANタグ (optional)
+  --bridge <bridge>          ブリッジ (default: vmbr0)
+  -h, --help                 このヘルプを表示
+
+Examples:
+  ./deploy.sh --template-id 9000 --vm-id 100 --name test --github csenet \
+    --password password123 --network ip=192.168.200.10/24,gw=192.168.200.1 --vlan 200
+
+  ./deploy.sh --name test --github csenet --password password123 \
+    --network ip=192.168.200.10/24,gw=192.168.200.1
+  # → テンプレ対話選択 + VM ID自動割り当て
+EOF
+}
 
 handle_error() {
   echo "エラーが発生しました: $1" >&2
   exit 1
 }
 
+# デフォルト値
+TEMPLATE_VM_ID="select"
+VM_ID="auto"
+VM_NAME=""
+GITHUB_ACCOUNT=""
+PASSWORD=""
+NETWORK=""
+VLAN_TAG=""
+BRIDGE="vmbr0"
+
+# 引数パース
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --template-id) [ -z "${2:-}" ] && handle_error "--template-id に値がありません"; TEMPLATE_VM_ID="$2"; shift 2 ;;
+    --vm-id)       [ -z "${2:-}" ] && handle_error "--vm-id に値がありません"; VM_ID="$2"; shift 2 ;;
+    --name)        [ -z "${2:-}" ] && handle_error "--name に値がありません"; VM_NAME="$2"; shift 2 ;;
+    --github)      [ -z "${2:-}" ] && handle_error "--github に値がありません"; GITHUB_ACCOUNT="$2"; shift 2 ;;
+    --password)    [ -z "${2:-}" ] && handle_error "--password に値がありません"; PASSWORD="$2"; shift 2 ;;
+    --network)     [ -z "${2:-}" ] && handle_error "--network に値がありません"; NETWORK="$2"; shift 2 ;;
+    --vlan)        [ -z "${2:-}" ] && handle_error "--vlan に値がありません"; VLAN_TAG="$2"; shift 2 ;;
+    --bridge)      [ -z "${2:-}" ] && handle_error "--bridge に値がありません"; BRIDGE="$2"; shift 2 ;;
+    -h|--help)     show_help; exit 0 ;;
+    *) handle_error "不明なオプション: $1 (--help でヘルプ表示)" ;;
+  esac
+done
+
+# 必須引数チェック
+[ -z "${VM_NAME}" ]        && { show_help >&2; echo "" >&2; handle_error "--name は必須です"; }
+[ -z "${GITHUB_ACCOUNT}" ] && handle_error "--github は必須です"
+[ -z "${PASSWORD}" ]       && handle_error "--password は必須です"
+[ -z "${NETWORK}" ]        && handle_error "--network は必須です"
+
+# 既存VM一覧を一括取得 (qm statusの個別呼び出しを避ける)
+EXISTING_VMS=$(qm list 2>/dev/null | awk 'NR>1')
+EXISTING_IDS=$(echo "${EXISTING_VMS}" | awk '{print $1}')
+
 # テンプレート対話選択
 select_template() {
   echo "利用可能なテンプレート一覧:" >&2
   local templates=()
   while IFS= read -r line; do
+    [ -z "${line}" ] && continue
     local id name
     id=$(echo "${line}" | awk '{print $1}')
     name=$(echo "${line}" | awk '{print $2}')
     if qm config "${id}" 2>/dev/null | grep -q "^template: 1"; then
       templates+=("${id}|${name}")
     fi
-  done < <(qm list 2>/dev/null | awk 'NR>1')
+  done <<< "${EXISTING_VMS}"
 
   if [ "${#templates[@]}" -eq 0 ]; then
     echo "テンプレートが見つかりません" >&2
@@ -72,10 +113,10 @@ if [ "${TEMPLATE_VM_ID}" = "select" ]; then
 fi
 
 if ! [[ "${TEMPLATE_VM_ID}" =~ ^[0-9]+$ ]]; then
-  handle_error "TEMPLATE_VM_IDは数値もしくは 'select' を指定してください: ${TEMPLATE_VM_ID}"
+  handle_error "--template-id は数値もしくは 'select' を指定してください: ${TEMPLATE_VM_ID}"
 fi
 
-if ! qm status "${TEMPLATE_VM_ID}" >/dev/null 2>&1; then
+if ! grep -qx "${TEMPLATE_VM_ID}" <<< "${EXISTING_IDS}"; then
   handle_error "テンプレートVM ${TEMPLATE_VM_ID} が存在しません"
 fi
 
@@ -91,10 +132,10 @@ if [ "${VM_ID}" = "auto" ]; then
 fi
 
 if ! [[ "${VM_ID}" =~ ^[0-9]+$ ]]; then
-  handle_error "VM IDは数値もしくは 'auto' を指定してください: ${VM_ID}"
+  handle_error "--vm-id は数値もしくは 'auto' を指定してください: ${VM_ID}"
 fi
 
-if qm status "${VM_ID}" >/dev/null 2>&1; then
+if grep -qx "${VM_ID}" <<< "${EXISTING_IDS}"; then
   handle_error "VM ID ${VM_ID} は既に使用されています"
 fi
 
@@ -116,9 +157,11 @@ qm set "${VM_ID}" --cipassword "${PASSWORD}" || handle_error "パスワードの
 # Set network
 qm set "${VM_ID}" --ipconfig0 "${NETWORK}" || handle_error "ネットワークの設定に失敗しました"
 
-# add vlan tag if VLAN_TAG is set
+# bridge / vlan
 if [ -n "${VLAN_TAG}" ]; then
-  qm set "${VM_ID}" --net0 "virtio,bridge=vmbr0,tag=${VLAN_TAG}" || handle_error "VLANタグの設定に失敗しました"
+  qm set "${VM_ID}" --net0 "virtio,bridge=${BRIDGE},tag=${VLAN_TAG}" || handle_error "ネットワーク設定に失敗しました"
+elif [ "${BRIDGE}" != "vmbr0" ]; then
+  qm set "${VM_ID}" --net0 "virtio,bridge=${BRIDGE}" || handle_error "ネットワーク設定に失敗しました"
 fi
 
 # Apply SSH keys

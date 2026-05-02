@@ -1,68 +1,83 @@
 #!/bin/bash
 # VM Templateをセットアップするスクリプト
 # wget https://raw.githubusercontent.com/csenet/proxmox-cloudinit/refs/heads/main/setup.sh
-# ./setup.sh <VM_ID|auto> <UBUNTU_CODE_NAME> <MEMORY_SIZE> [<DISK_POOL|select>] [--no-template] [--enable-agent] [--no-verify]
 
 set -uo pipefail
 
-# Check arguments
-if [ "$#" -lt 3 ]; then
-  echo "Invalid number of arguments"
-  echo "Usage: ./setup.sh <VM_ID|auto> <UBUNTU_CODE_NAME> <MEMORY_SIZE> [<DISK_POOL|select>] [--no-template] [--enable-agent] [--no-verify]"
-  echo ""
-  echo "Examples:"
-  echo "  ./setup.sh 9000 noble 4096"
-  echo "  ./setup.sh auto noble 4096                                  # VM IDを自動割り当て (9000番台から空きを探す)"
-  echo "  ./setup.sh auto noble 4096 select                           # ストレージを対話選択"
-  echo "  ./setup.sh 9000 noble 4096 HDDPool                          # ストレージ指定"
-  echo "  ./setup.sh 9000 noble 4096 local-lvm --no-template          # テンプレート化しない"
-  echo "  ./setup.sh auto noble 4096 select --enable-agent            # qemu-guest-agent有効"
-  echo "  ./setup.sh 9000 noble 4096 local-lvm --no-verify            # SHA256検証スキップ"
-  exit 1
-fi
+show_help() {
+  cat <<'EOF'
+Usage: ./setup.sh [options]
 
-# エラーが発生したら処理を終了する関数
+Options:
+  --vm-id <id|auto>        VM ID (default: auto = 9000-9999の空きから自動)
+  --ubuntu <codename>      Ubuntu codename (required, e.g. noble jammy)
+  --memory <mb>            Memory size in MB (default: 2048)
+  --storage <name|select>  Disk storage pool (default: local-lvm, "select"で対話選択)
+  --cores <n>              CPU cores (default: 2)
+  --disk-size <size>       追加するディスクサイズ (default: +20G)
+  --no-template            VMをテンプレート化しない
+  --enable-agent           qemu-guest-agentを有効化（イメージ変換あり）
+  --no-verify              SHA256検証をスキップ
+  -h, --help               このヘルプを表示
+
+Examples:
+  ./setup.sh --ubuntu noble
+  ./setup.sh --ubuntu noble --memory 4096 --storage select
+  ./setup.sh --vm-id 9000 --ubuntu noble --memory 4096 --storage HDDPool --no-template
+  ./setup.sh --ubuntu noble --enable-agent --no-verify
+EOF
+}
+
 handle_error() {
   echo "エラーが発生しました: $1" >&2
   exit 1
 }
 
-VM_ID=$1            # QEMU VM ID もしくは "auto"
-UBUNTU_CODE_NAME=$2 # Ubuntu Code Name
-MEMORY_SIZE=$3      # Memory Size
-DISK_POOL=${4:-}    # Disk Pool optional もしくは "select"
+# デフォルト値
+VM_ID="auto"
+UBUNTU_CODE_NAME=""
+MEMORY_SIZE="2048"
+DISK_POOL="local-lvm"
+CORES="2"
+DISK_SIZE="+20G"
 NO_TEMPLATE=false
 ENABLE_AGENT=false
 VERIFY_CHECKSUM=true
 
-# カレントディレクトリの絶対パスを取得
+# 引数パース
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --vm-id)        [ -z "${2:-}" ] && handle_error "--vm-id に値がありません"; VM_ID="$2"; shift 2 ;;
+    --ubuntu)       [ -z "${2:-}" ] && handle_error "--ubuntu に値がありません"; UBUNTU_CODE_NAME="$2"; shift 2 ;;
+    --memory)       [ -z "${2:-}" ] && handle_error "--memory に値がありません"; MEMORY_SIZE="$2"; shift 2 ;;
+    --storage)      [ -z "${2:-}" ] && handle_error "--storage に値がありません"; DISK_POOL="$2"; shift 2 ;;
+    --cores)        [ -z "${2:-}" ] && handle_error "--cores に値がありません"; CORES="$2"; shift 2 ;;
+    --disk-size)    [ -z "${2:-}" ] && handle_error "--disk-size に値がありません"; DISK_SIZE="$2"; shift 2 ;;
+    --no-template)  NO_TEMPLATE=true; shift ;;
+    --enable-agent) ENABLE_AGENT=true; shift ;;
+    --no-verify)    VERIFY_CHECKSUM=false; shift ;;
+    -h|--help)      show_help; exit 0 ;;
+    *) handle_error "不明なオプション: $1 (--help でヘルプ表示)" ;;
+  esac
+done
+
+# 必須引数チェック
+[ -z "${UBUNTU_CODE_NAME}" ] && { show_help >&2; echo "" >&2; handle_error "--ubuntu は必須です"; }
+
+# パス組み立て
 CURRENT_DIR="$(pwd)"
 IMAGE_FILE="${CURRENT_DIR}/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img"
 AGENT_ENABLED_IMAGE="${CURRENT_DIR}/${UBUNTU_CODE_NAME}-server-cloudimg-amd64-agent.img"
 SOURCE_URL="https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/${UBUNTU_CODE_NAME}-server-cloudimg-amd64.img"
 CHECKSUM_URL="https://cloud-images.ubuntu.com/${UBUNTU_CODE_NAME}/current/SHA256SUMS"
 
-# フラグオプションをパース
-for arg in "$@"; do
-  case "$arg" in
-    --no-template)  NO_TEMPLATE=true ;;
-    --enable-agent) ENABLE_AGENT=true ;;
-    --no-verify)    VERIFY_CHECKSUM=false ;;
-  esac
-done
+# 既存VM IDを一括取得 (qm statusの個別呼び出しを避ける)
+EXISTING_IDS=$(qm list 2>/dev/null | awk 'NR>1 {print $1}')
 
-# DISK_POOLがフラグ文字列だった場合は未指定扱い
-case "$DISK_POOL" in
-  --no-template|--enable-agent|--no-verify|"")
-    DISK_POOL=""
-    ;;
-esac
-
-# VM IDの自動割り当て
-# テンプレート用は9000番台、それ以外はpvesh nextidに任せる
+# VM IDの自動割り当て (テンプレート用は9000番台から空きを探す)
 get_next_template_id() {
   for id in $(seq 9000 9999); do
-    if ! qm status "${id}" >/dev/null 2>&1; then
+    if ! grep -qx "${id}" <<< "${EXISTING_IDS}"; then
       echo "${id}"
       return 0
     fi
@@ -82,7 +97,7 @@ if ! [[ "${VM_ID}" =~ ^[0-9]+$ ]]; then
 fi
 
 # VM ID重複チェック
-if qm status "${VM_ID}" >/dev/null 2>&1; then
+if grep -qx "${VM_ID}" <<< "${EXISTING_IDS}"; then
   handle_error "VM ID ${VM_ID} は既に使用されています"
 fi
 
@@ -114,8 +129,6 @@ select_storage() {
 if [ "${DISK_POOL}" = "select" ]; then
   DISK_POOL=$(select_storage) || handle_error "ストレージ選択に失敗しました"
   echo "  → ストレージ ${DISK_POOL} を使用します"
-elif [ -z "${DISK_POOL}" ]; then
-  DISK_POOL="local-lvm"
 fi
 
 # qemu-guest-agentキャッシュイメージが使える場合はそれを使う
@@ -179,7 +192,7 @@ qm create "${VM_ID}" \
   --memory "${MEMORY_SIZE}" \
   --net0 virtio,bridge=vmbr0 \
   --scsihw virtio-scsi-pci \
-  --cores 2 \
+  --cores "${CORES}" \
   --sockets 1 \
   --name "ubuntu-${UBUNTU_CODE_NAME}-template" \
   || handle_error "VM作成に失敗しました"
@@ -198,8 +211,8 @@ echo "CloudInitを設定しています..."
 qm set "${VM_ID}" --ide2 "${DISK_POOL}:cloudinit" || handle_error "CloudInit設定に失敗しました"
 
 # Add disk size
-echo "ディスクサイズを調整しています..."
-qm resize "${VM_ID}" scsi0 +20G || handle_error "ディスクサイズの変更に失敗しました"
+echo "ディスクサイズを調整しています (${DISK_SIZE})..."
+qm resize "${VM_ID}" scsi0 "${DISK_SIZE}" || handle_error "ディスクサイズの変更に失敗しました"
 
 # Set boot order
 echo "ブート順序を設定しています..."
